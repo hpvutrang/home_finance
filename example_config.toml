@@ -1,0 +1,6 @@
+[database]
+url = "toto"
+name = "tata"
+user = "titi"
+password = "tata"
+port = "toto"
