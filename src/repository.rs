@@ -1,13 +1,15 @@
 use deadpool_postgres::Pool;
 
+mod cache;
+mod dao;
+mod dto;
+
+pub mod filter;
+
 use crate::{
     model,
     repository::{self, cache::Repository as CacheRepository, dto::DtoModelNoRef},
 };
-
-mod cache;
-mod dao;
-mod dto;
 
 pub struct Repository {
     dao: dao::Dao,
@@ -81,6 +83,25 @@ impl Repository {
         res.credit = credit_account;
         res.debit= debit_account;
         Ok(res)
+    }
+
+    pub async fn get_entries(
+        &self,
+        filter: &filter::Filters<filter::EntryFields>,
+    ) -> Result<Vec<model::entry::Entry>, Box<dyn std::error::Error>> {
+        let entries_dto = self.dao.get_entries(filter).await?;
+
+        let mut entries = Vec::new();
+        for entry_dto in entries_dto {
+            let credit_account = self.get_account(entry_dto.credit_id).await?;
+            let debit_account = self.get_account(entry_dto.debit_id).await?;
+            let mut entry = dto::DtoModelNoRef::to_model(&entry_dto);
+            entry.credit = credit_account;
+            entry.debit = debit_account;
+            entries.push(entry);
+        }
+
+        Ok(entries)
     }
 }
 

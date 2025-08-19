@@ -18,6 +18,7 @@ mod utils;
         create_account,
         get_entry,
         create_entry,
+        get_entries_from_date_to_date,
     ),
     components(
         schemas(model::account::Account, model::entry::Entry, model::account::AccountFamily)
@@ -45,9 +46,12 @@ async fn rocket() -> Rocket<rocket::Build> {
     rocket::build()
         .mount(
             "/",
-            routes![get_account, create_account, get_entry, create_entry]
+            routes![get_account, create_account, get_entry, create_entry, get_entries_from_date_to_date],
         )
-        .mount("/", SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .mount(
+            "/",
+            SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDoc::openapi()),
+        )
         .manage(repository)
 }
 
@@ -130,6 +134,48 @@ async fn create_entry(
     match repository.insert_entry(&entry.into_inner()).await {
         Ok(_) => Status::Created,
         Err(_) => Status::InternalServerError,
+    }
+}
+
+#[utoipa::path(
+     get,
+     path = "/entries",
+     responses(
+         (status = 200, description = "Entries retrieved successfully", body = [Entry]),
+         (status = 500, description = "Internal server error")
+     ),
+     params(
+         ("start_date" = Option<String>, Query, description = "Start date for filtering entries"),
+         ("end_date" = Option<String>, Query, description = "End date for filtering entries")
+     )
+ )]
+#[get("/entries?<start_date>&<end_date>")]
+async fn get_entries_from_date_to_date(
+    repository: &rocket::State<repository::Repository>,
+    start_date: Option<String>,
+    end_date: Option<String>,
+) -> Result<Json<Vec<model::entry::Entry>>, Status> {
+    let mut filters = repository::filter::Filters::<repository::filter::EntryFields>::new();
+    if let Some(start) = start_date {
+        filters.and(
+            &repository::filter::EntryFields::EventDate,
+            repository::filter::Operator::GreaterThanOrEqual,
+            start,
+        );
+    }
+    if let Some(end) = end_date {
+        filters.and(
+            &repository::filter::EntryFields::EventDate,
+            repository::filter::Operator::LessThanOrEqual,
+            end,
+        );
+    }
+
+    match repository.get_entries(&filters).await {
+        Ok(entries) => Ok(Json(entries)),
+        Err(e) => {
+            eprintln!("Error retrieving entries: {}", e);
+            Err(Status::InternalServerError)},
     }
 }
 

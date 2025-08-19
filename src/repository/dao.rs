@@ -1,15 +1,13 @@
 use std::error::Error;
 
-use crate::repository::dto;
+use crate::repository::{dto, filter};
 
 pub(super) struct Dao {
     pub pool: deadpool_postgres::Pool,
 }
 
 pub(super) fn new(pool: deadpool_postgres::Pool) -> Dao {
-    Dao {
-        pool: pool,
-    }
+    Dao { pool: pool }
 }
 
 impl Dao {
@@ -51,11 +49,8 @@ impl Dao {
         Ok(accounts)
     }
 
-    pub(super) async fn insert_entry(
-        &self,
-        entry: &dto::Entry,
-    ) -> Result<i32, Box<dyn Error>> {
-        let query = "INSERT INTO entries (description, amount, event_date, credit_id, debit_id) VALUES ($1, $2, $3, $4, $5) RETURNING id";
+    pub(super) async fn insert_entry(&self, entry: &dto::Entry) -> Result<i32, Box<dyn Error>> {
+        let query = "INSERT INTO entries (description, amount::double precision, event_date, credit, debit) VALUES ($1, $2, $3, $4, $5) RETURNING id";
         let client = self.pool.get().await?;
         let row = client
             .query_one(
@@ -73,7 +68,7 @@ impl Dao {
     }
 
     pub(super) async fn get_entry(&self, id: i32) -> Result<dto::Entry, Box<dyn Error>> {
-        let query = "SELECT id, description, amount, event_date, credit_id, debit_id FROM entries WHERE id = $1";
+        let query = "SELECT id, description, amount::double precision, event_date, credit, debit FROM entries WHERE id = $1";
         let client = self.pool.get().await?;
         let row = client.query_one(query, &[&id]).await?;
         Ok(dto::Entry {
@@ -84,5 +79,33 @@ impl Dao {
             credit_id: row.get(4),
             debit_id: row.get(5),
         })
+    }
+
+    pub(super) async fn get_entries(
+        &self,
+        filters: &filter::Filters<filter::EntryFields>,
+    ) -> Result<Vec<dto::Entry>, Box<dyn Error>> {
+        let mut query =
+            "SELECT id, description, amount::double precision, event_date, credit, debit FROM entries"
+                .to_string();
+        let where_clause = filters.build();
+        if !where_clause.is_empty() {
+            query = format!("{} WHERE {}", query, where_clause);
+        }
+        println!("Executing query: {}", query);
+        let client = self.pool.get().await?;
+        let rows = client.query(&query, &[]).await?;
+        let entries: Vec<dto::Entry> = rows
+            .iter()
+            .map(|row| dto::Entry {
+                id: row.get(0),
+                description: row.get(1),
+                amount: row.get(2),
+                event_date: row.get(3),
+                credit_id: row.get(4), 
+                debit_id: row.get(5),
+            })
+            .collect();
+        Ok(entries)
     }
 }

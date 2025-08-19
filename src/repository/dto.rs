@@ -12,7 +12,7 @@ pub struct Entry {
     pub id: i32,
     pub description: String,
     pub amount: f64,
-    pub event_date: String, // Assuming a string representation for simplicity
+    pub event_date: DateTime<Utc>,
     pub credit_id: i32,
     pub debit_id: i32,
 }
@@ -45,9 +45,9 @@ impl DtoModelNoRef<model::entry::Entry> for Entry {
             id: -1,
             description: t.description.clone(),
             amount: t.amount,
-            event_date: t.event_date.to_rfc3339(),
+            event_date: t.event_date.clone(),
             credit_id: -1,
-            debit_id: -1, 
+            debit_id: -1,
         }
     }
 
@@ -55,9 +55,7 @@ impl DtoModelNoRef<model::entry::Entry> for Entry {
         model::entry::Entry {
             description: self.description.clone(),
             amount: self.amount,
-            event_date: DateTime::parse_from_rfc3339(&self.event_date)
-                .unwrap()
-                .with_timezone(&Utc),
+            event_date: self.event_date.clone(),
             credit: model::account::Account {
                 name: String::new(), // Placeholder, should fetch account details
                 family: model::account::AccountFamily::Asset, // Placeholder, should fetch account details
