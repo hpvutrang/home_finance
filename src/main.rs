@@ -1,7 +1,11 @@
 use rocket::{Rocket, http::Status, serde::json::Json};
+use tokio::sync::Mutex;
+use std::sync::Arc;
 use tokio_postgres::NoTls;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+
+use crate::repository::{Repository, RepositoryRealtimeUpdater};
 
 #[macro_use]
 extern crate rocket;
@@ -41,12 +45,28 @@ async fn rocket() -> Rocket<rocket::Build> {
         .unwrap();
     let db_pool = pool.clone();
 
-    let repository = repository::Repository::new(db_pool).await;
+    // Repository
+    let repository = Arc::new(Mutex::new(repository::Repository::new(db_pool).await));
+
+    // Notifications from Postgres
+    let realtime_update_repo = Arc::clone(&repository);
+    let pg_config = database_config.get_pg_config().unwrap();
+    tokio::spawn(async move {
+        println!("HELLO");
+        let realtime_updater = RepositoryRealtimeUpdater::new(realtime_update_repo.clone());
+        realtime_updater.listen(pg_config, NoTls).await;
+    });
 
     rocket::build()
         .mount(
             "/",
-            routes![get_account, create_account, get_entry, create_entry, get_entries_from_date_to_date],
+            routes![
+                get_account,
+                create_account,
+                get_entry,
+                create_entry,
+                get_entries_from_date_to_date
+            ],
         )
         .mount(
             "/",
@@ -69,10 +89,11 @@ async fn rocket() -> Rocket<rocket::Build> {
 #[get("/account/<id>")]
 async fn get_account(
     id: i32,
-    repository: &rocket::State<repository::Repository>,
+    repository: &rocket::State<Arc<Mutex<Repository>>>,
 ) -> Result<Json<model::account::Account>, Status> {
-    match repository.get_account(id).await {
-        Ok(account) => Ok(Json(account)),
+    // Clone the Arc to avoid holding the MutexGuard across await
+    match repository.lock().await.get_account(id).await {
+        Ok(entry) => Ok(Json(entry)),
         Err(_) => Err(Status::NotFound),
     }
 }
@@ -88,9 +109,9 @@ async fn get_account(
 #[post("/account", data = "<account>")]
 async fn create_account(
     account: Json<model::account::Account>,
-    repository: &rocket::State<repository::Repository>,
+    repository: &rocket::State<Arc<Mutex<repository::Repository>>>,
 ) -> Status {
-    match repository.insert_account(&account.into_inner()).await {
+    match repository.lock().await.insert_account(&account.into_inner()).await {
         Ok(_) => Status::Created,
         Err(_) => Status::InternalServerError,
     }
@@ -110,9 +131,9 @@ async fn create_account(
 #[get("/entry/<id>")]
 async fn get_entry(
     id: i32,
-    repository: &rocket::State<repository::Repository>,
+    repository: &rocket::State<Arc<Mutex<repository::Repository>>>,
 ) -> Result<Json<model::entry::Entry>, Status> {
-    match repository.get_entry(id).await {
+    match repository.lock().await.get_entry(id).await {
         Ok(entry) => Ok(Json(entry)),
         Err(_) => Err(Status::NotFound),
     }
@@ -129,29 +150,29 @@ async fn get_entry(
 #[post("/entry", data = "<entry>")]
 async fn create_entry(
     entry: Json<model::entry::Entry>,
-    repository: &rocket::State<repository::Repository>,
+    repository: &rocket::State<Arc<Mutex<repository::Repository>>>,
 ) -> Status {
-    match repository.insert_entry(&entry.into_inner()).await {
+    match repository.lock().await.insert_entry(&entry.into_inner()).await {
         Ok(_) => Status::Created,
         Err(_) => Status::InternalServerError,
     }
 }
 
 #[utoipa::path(
-     get,
-     path = "/entries",
-     responses(
-         (status = 200, description = "Entries retrieved successfully", body = [Entry]),
-         (status = 500, description = "Internal server error")
-     ),
-     params(
-         ("start_date" = Option<String>, Query, description = "Start date for filtering entries"),
-         ("end_date" = Option<String>, Query, description = "End date for filtering entries")
-     )
- )]
+    get,
+    path = "/entries",
+    responses(
+        (status = 200, description = "Entries retrieved successfully", body = [Entry]),
+        (status = 500, description = "Internal server error")
+    ),
+    params(
+        ("start_date" = Option<String>, Query, description = "Start date for filtering entries"),
+        ("end_date" = Option<String>, Query, description = "End date for filtering entries")
+    )
+)]
 #[get("/entries?<start_date>&<end_date>")]
 async fn get_entries_from_date_to_date(
-    repository: &rocket::State<repository::Repository>,
+    repository: &rocket::State<Arc<Mutex<repository::Repository>>>,
     start_date: Option<String>,
     end_date: Option<String>,
 ) -> Result<Json<Vec<model::entry::Entry>>, Status> {
@@ -171,11 +192,12 @@ async fn get_entries_from_date_to_date(
         );
     }
 
-    match repository.get_entries(&filters).await {
+    match repository.lock().await.get_entries(&filters).await {
         Ok(entries) => Ok(Json(entries)),
         Err(e) => {
             eprintln!("Error retrieving entries: {}", e);
-            Err(Status::InternalServerError)},
+            Err(Status::InternalServerError)
+        }
     }
 }
 

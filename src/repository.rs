@@ -1,14 +1,27 @@
+use std::sync::Arc;
+
 use deadpool_postgres::Pool;
+use tokio::sync::Mutex;
+use tokio_postgres::{
+    Config, Socket,
+    tls::{MakeTlsConnect, TlsConnect},
+};
 
 mod cache;
 mod dao;
+mod db_listener;
 mod dto;
 
 pub mod filter;
 
 use crate::{
     model,
-    repository::{self, cache::Repository as CacheRepository, dto::DtoModelNoRef},
+    repository::{
+        self,
+        cache::Repository as CacheRepository,
+        db_listener::{DatabaseListener, NotificationHandler},
+        dto::DtoModelNoRef,
+    },
 };
 
 pub struct Repository {
@@ -81,7 +94,7 @@ impl Repository {
 
         let mut res = dto::DtoModelNoRef::to_model(&entry_dto);
         res.credit = credit_account;
-        res.debit= debit_account;
+        res.debit = debit_account;
         Ok(res)
     }
 
@@ -102,6 +115,44 @@ impl Repository {
         }
 
         Ok(entries)
+    }
+}
+
+pub struct RepositoryRealtimeUpdater {
+    shared_repository: Arc<Mutex<Repository>>,
+}
+
+impl RepositoryRealtimeUpdater {
+    pub fn new(repository: Arc<Mutex<Repository>>) -> Self {
+        Self { shared_repository:repository }
+    }
+
+    pub async fn listen<T>(&self, pg_config: Config, tls: T)
+    where
+        T: MakeTlsConnect<Socket> + Clone + Sync + Send + 'static,
+        T::Stream: Sync + Send,
+        T::TlsConnect: Sync + Send,
+        <T::TlsConnect as TlsConnect<Socket>>::Future: Send,
+    {
+        let updater = AccountRepositoryRealtimeUpdater::new(self.shared_repository.clone());
+        let connect = DatabaseListener::new(pg_config, tls);
+        connect.attach(updater, "TODO").await;
+    }
+}
+
+pub struct AccountRepositoryRealtimeUpdater {
+    _shared_repository: Arc<Mutex<Repository>>
+}
+
+impl AccountRepositoryRealtimeUpdater {
+    fn new(shared_repository: Arc<Mutex<Repository>>) -> Self {
+        Self { _shared_repository: shared_repository }
+    }
+}
+
+impl NotificationHandler for AccountRepositoryRealtimeUpdater {
+    fn on_notification_received(&self, _channel: &str, _message: &str) {
+        todo!("TO BE IMPLEMENTED")
     }
 }
 
