@@ -20,6 +20,7 @@ pub trait ToSql {
 
 pub trait Fields{}
 
+#[allow(dead_code)]
 pub enum Operator {
     Equal,
     NotEqual,
@@ -41,6 +42,8 @@ impl ToSql for Operator {
         }
     }
 }
+
+#[allow(dead_code)]
 enum BinaryOperator {
     And,
     Or,
@@ -69,7 +72,7 @@ where T: Fields + ToSql {
 
 impl<T> Filters<T> where T: Fields + ToSql {
     pub fn and(&mut self, field: &T, operator: Operator, value: String) -> &mut Self {
-        if (!self.filter_sequences.is_empty()) {
+        if !self.filter_sequences.is_empty() {
             self.filter_sequences.push("AND".to_string());
         }
         self.filter_sequences.push(field.to_sql());
@@ -78,8 +81,9 @@ impl<T> Filters<T> where T: Fields + ToSql {
         self
     }
 
+    #[allow(dead_code)]
     pub fn or(&mut self, field: &T, operator: Operator, value: String) -> &mut Self {
-        if (!self.filter_sequences.is_empty()) {
+        if !self.filter_sequences.is_empty() {
             self.filter_sequences.push("OR".to_string());
         }
         self.filter_sequences.push(field.to_sql());

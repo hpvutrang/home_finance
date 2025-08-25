@@ -9,7 +9,9 @@ pub struct Account {
 }
 
 pub struct Entry {
+    #[allow(dead_code)]
     pub id: i32,
+
     pub description: String,
     pub amount: f64,
     pub event_date: DateTime<Utc>,
