@@ -2,12 +2,14 @@ use chrono::{DateTime, Utc};
 
 use crate::model;
 
+#[derive(Debug)]
 pub struct Account {
     pub id: i32,
     pub name: String,
     pub family: i32,
 }
 
+#[derive(Debug)]
 pub struct Entry {
     #[allow(dead_code)]
     pub id: i32,

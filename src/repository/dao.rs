@@ -1,5 +1,7 @@
 use std::error::Error;
 
+use tracing::Level;
+
 use crate::repository::{dto, filter};
 
 pub(super) struct Dao {
@@ -46,6 +48,8 @@ impl Dao {
                 family: row.get(2),
             })
             .collect();
+
+        tracing::event!(Level::DEBUG, "Retrieved {:?}", accounts);
         Ok(accounts)
     }
 
@@ -92,7 +96,6 @@ impl Dao {
         if !where_clause.is_empty() {
             query = format!("{} WHERE {}", query, where_clause);
         }
-        println!("Executing query: {}", query);
         let client = self.pool.get().await?;
         let rows = client.query(&query, &[]).await?;
         let entries: Vec<dto::Entry> = rows
@@ -102,7 +105,7 @@ impl Dao {
                 description: row.get(1),
                 amount: row.get(2),
                 event_date: row.get(3),
-                credit_id: row.get(4), 
+                credit_id: row.get(4),
                 debit_id: row.get(5),
             })
             .collect();

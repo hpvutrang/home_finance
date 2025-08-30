@@ -1,7 +1,12 @@
-use rocket::Rocket;
+use rocket::{Config, Rocket};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::NoTls;
+use tracing::{Level, span};
+use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Layer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -23,18 +28,40 @@ use crate::routes::{
 
 #[launch]
 async fn rocket() -> Rocket<rocket::Build> {
+
+    // Logging initialization
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        "finance=trace,finance::repository::dao=info,rocket::launch=debug,tokio_postgres=info"
+            .into()
+    });
+
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_ansi(true)
+        .with_target(true)
+        .with_span_events(FmtSpan::CLOSE)
+        .with_filter(env_filter);
+
+    tracing_subscriber::registry().with(console_layer).init();
+
     // Load configuration
+    let span = span!(Level::INFO, "Initialization");
+    let _guard = span.enter();
+
     let config_file = "config.toml".to_string();
     let database_config = read_config(config_file)
         .await
         .expect("Failed to read configuration");
+    tracing::event!(parent: &span, Level::INFO, "Configuration file loaded: {:?}", database_config);
+
     let pool = database_config
         .create_pool(Some(deadpool_postgres::Runtime::Tokio1), NoTls)
-        .unwrap();
+        .expect("Cannot create pool");
     let db_pool = pool.clone();
+    tracing::event!(parent: &span, Level::INFO, "Database pool is initialized");
 
     // Repository
     let repository = Arc::new(Mutex::new(repository::Repository::new(db_pool).await));
+    tracing::event!(parent: &span, Level::INFO, "Repository initialized");
 
     // Notifications from Postgres
     let realtime_update_repo = Arc::clone(&repository);
@@ -44,7 +71,10 @@ async fn rocket() -> Rocket<rocket::Build> {
         realtime_updater.listen(pg_config, NoTls).await;
     });
 
-    rocket::build()
+    drop(_guard);
+
+    let config = rocket::Config::figment().join((Config::CLI_COLORS, "false"));
+    rocket::custom(config)
         .mount(
             "/",
             routes![

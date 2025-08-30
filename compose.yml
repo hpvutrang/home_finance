@@ -7,6 +7,7 @@ services:
       - ./config.toml:/usr/local/bin/config.toml
     environment:
       ROCKET_ADDRESS: "0.0.0.0"
+      ROCKET_CLI_COLORS: ${ROCKET_CLI_COLORS}
     depends_on:
       - db
 
