@@ -6,6 +6,7 @@ use tokio_postgres::{
     Config, Socket,
     tls::{MakeTlsConnect, TlsConnect},
 };
+use tracing::{Level, instrument};
 
 mod cache;
 mod dao;
@@ -30,6 +31,7 @@ pub struct Repository {
 }
 
 impl Repository {
+    #[instrument(name = "Repository initialization", skip(pool))]
     pub async fn new(pool: Pool) -> Repository {
         let dao = dao::new(pool);
         let account_repository = initialize_account_repository(&dao).await;
@@ -124,7 +126,9 @@ pub struct RepositoryRealtimeUpdater {
 
 impl RepositoryRealtimeUpdater {
     pub fn new(repository: Arc<Mutex<Repository>>) -> Self {
-        Self { shared_repository:repository }
+        Self {
+            shared_repository: repository,
+        }
     }
 
     pub async fn listen<T>(&self, pg_config: Config, tls: T)
@@ -136,17 +140,19 @@ impl RepositoryRealtimeUpdater {
     {
         let updater = AccountRepositoryRealtimeUpdater::new(self.shared_repository.clone());
         let connect = DatabaseListener::new(pg_config, tls);
-        connect.attach(updater, "TODO").await;
+        connect.attach(updater, "todo").await;
     }
 }
 
 pub struct AccountRepositoryRealtimeUpdater {
-    _shared_repository: Arc<Mutex<Repository>>
+    _shared_repository: Arc<Mutex<Repository>>,
 }
 
 impl AccountRepositoryRealtimeUpdater {
     fn new(shared_repository: Arc<Mutex<Repository>>) -> Self {
-        Self { _shared_repository: shared_repository }
+        Self {
+            _shared_repository: shared_repository,
+        }
     }
 }
 
@@ -156,6 +162,7 @@ impl NotificationHandler for AccountRepositoryRealtimeUpdater {
     }
 }
 
+#[instrument(name = "Account repository initialization", level = Level::DEBUG, skip(dao))]
 async fn initialize_account_repository(dao: &dao::Dao) -> cache::AccountRepository {
     let cache = cache::AccountRepository::new();
     let accounts = dao.get_accounts().await.expect("Failed to fetch accounts");
